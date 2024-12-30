@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { Battery, Activity, RotateCw, Terminal } from 'lucide-react';
+import { Battery, Activity, RotateCw, Terminal, Download, Circle } from 'lucide-react';
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import moment from 'moment';
@@ -23,6 +23,9 @@ const PowerMeterApp = () => {
   const [calibrationStep, setCalibrationStep] = useState(0);
   const [calibrationSide, setCalibrationSide] = useState('left');
   const [calibrationWeight, setCalibrationWeight] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedData, setRecordedData] = useState([]);
+  const [recordingStartTime, setRecordingStartTime] = useState(null);
 
   // New state for command input
   const [customCommand, setCustomCommand] = useState('');
@@ -195,21 +198,54 @@ const PowerMeterApp = () => {
   // Handle incoming power data
   const handlePowerData = (event) => {
     const value = event.target.value;
-    console.log(value);
     const power = value.getUint16(2, true);
     const timestamp = Date.now();
     
     setCurrentPower(power);
     setPowerHistory(prev => [...prev, { time: timestamp, power }].slice(-60));
     
-    if (value.byteLength >= 8) {
-      const crankRev = value.getUint16(4, true);
-      const lastCrankTime = value.getUint16(6, true);
-      // Calculate cadence from crank data
-      // This is simplified - you'd need to track previous values for accurate calculation
-      setCadence(Math.round(crankRev / (lastCrankTime / 1024) * 60));
+    const currentCadence = value.getUint16(4, true);
+    setCadence(currentCadence);
+
+    // Record data if recording is active
+    if (isRecording) {
+      const timeOffset = timestamp - recordingStartTime;
+      setRecordedData(prev => [...prev, {
+        timestamp: timeOffset,
+        power: power,
+        cadence: currentCadence
+      }]);
     }
   };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordingStartTime(Date.now());
+    setRecordedData([]);
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+  };
+
+  const downloadRecordedData = () => {
+    // Create CSV content
+    const headers = 'timestamp_ms,power_watts,cadence_rpm\n';
+    const csvContent = recordedData.map(row => 
+      `${row.timestamp},${row.power},${row.cadence}`
+    ).join('\n');
+    
+    const blob = new Blob([headers + csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `power_data_${new Date().toISOString()}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
 
   // Handle battery updates
   const handleBatteryData = (event) => {
@@ -220,7 +256,7 @@ const PowerMeterApp = () => {
   const handleLogData = (event) => {
     const decoder = new TextDecoder();
     const logMessage = decoder.decode(event.target.value);
-    setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), message: logMessage }]);
+    setLogs(prev => [{ time: new Date().toLocaleTimeString(), message: logMessage }, ...prev]);
   };
 
   // Send command to device
@@ -253,6 +289,46 @@ const PowerMeterApp = () => {
         setCalibrationStep(0);
         break;
     }
+  };
+
+  const recordingControls = (
+    <div className="mt-4 flex justify-between items-center">
+      <div className="flex items-center gap-4">
+        <Button 
+          onClick={isRecording ? stopRecording : startRecording}
+          variant={isRecording ? "destructive" : "default"}
+          className="flex items-center gap-2"
+        >
+          <Circle className={`w-4 h-4 ${isRecording ? "animate-pulse text-red-500" : ""}`} />
+          {isRecording ? "Stop Recording" : "Start Recording"}
+        </Button>
+        
+        {recordedData.length > 0 && (
+          <Button 
+            onClick={downloadRecordedData}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download CSV
+          </Button>
+        )}
+      </div>
+      
+      {isRecording && (
+        <div className="text-sm text-gray-500">
+          Recording: {formatDuration(Date.now() - recordingStartTime)}
+          {` (${recordedData.length} samples)`}
+        </div>
+      )}
+    </div>
+  );
+   // Helper function to format duration
+   const formatDuration = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    return `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
   };
 
   return (
@@ -294,29 +370,32 @@ const PowerMeterApp = () => {
             <TabsTrigger value="dev">Developer</TabsTrigger>
           </TabsList>
 
+
           <TabsContent value="power">
             <div className="grid gap-4">
+              
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="w-6 h-6" />
-                    Current Power
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-4xl font-bold">{currentPower}W</div>
-                  <LineChart width={600} height={200} data={powerHistory}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" domain = {['auto', 'auto']}
-        name = 'Time'
-        tickFormatter = {(unixTime) => moment(unixTime).format('HH:mm:ss')}
-        type = 'number' />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="power" stroke="#8884d8" />
-                  </LineChart>
-                </CardContent>
-              </Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="w-6 h-6" />
+                Current Power
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-bold">{currentPower}W</div>
+              <LineChart width={600} height={200} data={powerHistory}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" domain = {['auto', 'auto']}
+                  name = 'Time'
+                  tickFormatter = {(unixTime) => moment(unixTime).format('HH:mm:ss')}
+                  type = 'number' />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="power" stroke="#8884d8" />
+              </LineChart>
+              {recordingControls}
+            </CardContent>
+          </Card>
 
               <div className="grid grid-cols-2 gap-4">
                 <Card>
