@@ -291,6 +291,15 @@ const PowerMeterApp = () => {
     }
   };
 
+  // Helper function to format duration
+  const formatDuration = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    return `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+  };
+  
+  
   const recordingControls = (
     <div className="mt-4 flex justify-between items-center">
       <div className="flex items-center gap-4">
@@ -323,13 +332,7 @@ const PowerMeterApp = () => {
       )}
     </div>
   );
-   // Helper function to format duration
-   const formatDuration = (ms) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    return `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
-  };
+   
 
   return (
     <div className="container mx-auto p-4">
